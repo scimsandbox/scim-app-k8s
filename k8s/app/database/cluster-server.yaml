@@ -1,0 +1,80 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: scim-postgres-server
+spec:
+  description: SCIM PostgreSQL cluster for scimserver (k3s)
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.1-standard-trixie
+  instances: 1
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: scim-postgres-server-superuser
+  monitoring:
+    enablePodMonitor: false
+  inheritedMetadata:
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9187"
+  affinity:
+    enablePodAntiAffinity: false
+    nodeSelector:
+      workload: database
+  enablePDB: false
+  bootstrap:
+    initdb:
+      database: scimserver
+      owner: scimserver
+      secret:
+        name: scim-postgres-server-auth
+  postgresql:
+    parameters:
+      max_connections: "100"
+      # Memory — container limit 5 Gi
+      # shared_buffers: 25 % of container memory limit
+      shared_buffers: "1280MB"
+      # effective_cache_size: ~75 % of container memory limit
+      effective_cache_size: "3840MB"
+      # work_mem: (RAM - shared_buffers) / (max_connections * 3) for web workload
+      work_mem: "10922kB"
+      maintenance_work_mem: "320MB"
+      # WAL
+      wal_compression: "lz4"
+      wal_level: "replica"
+      max_wal_size: "4GB"
+      min_wal_size: "1GB"
+      wal_buffers: "16MB"
+      # Checkpoints
+      checkpoint_completion_target: "0.9"
+      checkpoint_timeout: "15min"
+      # Parallelism — 3 CPU limit; keep 1 free for autovacuum/OS
+      huge_pages: "off"
+      max_worker_processes: "3"
+      max_parallel_workers: "2"
+      max_parallel_workers_per_gather: "1"
+      max_parallel_maintenance_workers: "1"
+      # NVMe I/O
+      random_page_cost: "1.1"
+      effective_io_concurrency: "1000"
+      maintenance_io_concurrency: "1000"
+      default_statistics_target: "100"
+      # Autovacuum — aggressive for write-heavy scim_request_logs table
+      autovacuum_max_workers: "3"
+      autovacuum_naptime: "10s"
+      autovacuum_vacuum_cost_limit: "2000"
+      autovacuum_work_mem: "256MB"
+      # Observability
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: "all"
+      track_io_timing: "on"
+      # JIT off — OLTP short queries pay compilation cost with no benefit
+      jit: "off"
+  storage:
+    storageClass: local-path-custom
+    size: 325Gi
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      cpu: "3"
+      memory: 5Gi

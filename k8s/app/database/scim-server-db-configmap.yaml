@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scim-server-db
+data:
+  POSTGRES_HOST: scim-postgres-server-rw
+  POSTGRES_PORT: "5432"
+  POSTGRES_DATABASE: scimserver

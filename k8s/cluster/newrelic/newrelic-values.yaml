@@ -1,0 +1,55 @@
+global:
+  cluster: netcup-scim
+  customSecretName: newrelic-license
+  customSecretLicenseKey: license-key
+  region: EU
+  lowDataMode: true
+k8s-agents-operator:
+  enabled: true
+kube-state-metrics:
+  enabled: true
+  image:
+    tag: v2.13.0
+kubeEvents:
+  enabled: true
+logging:
+  enabled: true
+newrelic-logging:
+  lowDataMode: true
+  fluentBit:
+    config:
+      inputs: |
+        [INPUT]
+            Name tail
+            Path /var/log/containers/*.log
+            Exclude_Path /var/log/containers/*_newrelic_*.log
+            Tag kube.*
+            Mem_Buf_Limit 7MB
+            Skip_Long_Lines On
+newrelic-prometheus-agent:
+  enabled: false
+  lowDataMode: true
+  config:
+    kubernetes:
+      integrations_filter:
+        enabled: true
+      jobs:
+        - job_name_prefix: custom-scrape
+          integrations_filter:
+            enabled: false
+          target_discovery:
+            pod: true
+            endpoints: true
+            filter:
+              namespaces:
+                - scim
+                - cloudflared
+              annotations:
+                "prometheus.io/scrape": "true"
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              action: drop
+              regex: '(cnpg_pg_settings_setting)'
+
+nr-ebpf-agent:
+  enabled: true

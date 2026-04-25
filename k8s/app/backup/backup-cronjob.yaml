@@ -1,0 +1,87 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scim-db-backup
+  namespace: default
+spec:
+  # Run every day at 03:00 AM
+  schedule: "0 3 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: alpine:3.19
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  
+                  # Install required packages
+                  apk add --no-cache postgresql-client restic openssh-client curl bash sshpass
+                  
+                  # Configure SSH
+                  mkdir -p ~/.ssh
+                  # Disable StrictHostKeyChecking for the Storage Box
+                  echo -e "Host *.your-storagebox.de\n\tStrictHostKeyChecking no\n" > ~/.ssh/config
+                  chmod 600 ~/.ssh/config
+
+                  # Environment variables for restic and sshpass
+                  export RESTIC_PASSWORD=$(cat /etc/backup-secrets/restic-password)
+                  export SSHPASS=$(cat /etc/backup-secrets/ssh-password)
+                  export RESTIC_REPOSITORY="sftp:${STORAGE_BOX_USER}@${STORAGE_BOX_HOST}:${STORAGE_BOX_PATH}"
+
+                  # Initialize restic repo if it doesn't exist
+                  sshpass -e restic snapshots || sshpass -e restic init
+
+                  echo "Starting backup of scim-postgres-server..."
+                  PGPASSWORD=${SERVER_DB_PASSWORD} pg_dump -h scim-postgres-server-rw -U postgres scimserver | \
+                    sshpass -e restic backup --stdin --stdin-filename scim-server.sql
+
+                  echo "Starting backup of scim-postgres-validator..."
+                  PGPASSWORD=${VALIDATOR_DB_PASSWORD} pg_dump -h scim-postgres-validator-rw -U postgres scimvalidator | \
+                    sshpass -e restic backup --stdin --stdin-filename scim-validator.sql
+
+                  echo "Pruning old backups, keeping the last 3..."
+                  sshpass -e restic forget --keep-last 3 --prune
+
+                  echo "Backup completed successfully!"
+              env:
+                - name: SERVER_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: scim-postgres-server-superuser
+                      key: password
+                - name: VALIDATOR_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: scim-postgres-validator-superuser
+                      key: password
+                - name: STORAGE_BOX_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-secrets
+                      key: storage-box-user
+                - name: STORAGE_BOX_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-secrets
+                      key: storage-box-host
+                - name: STORAGE_BOX_PATH
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-secrets
+                      key: storage-box-path
+              volumeMounts:
+                - name: backup-secrets
+                  mountPath: /etc/backup-secrets
+                  readOnly: true
+          volumes:
+            - name: backup-secrets
+              secret:
+                secretName: backup-secrets

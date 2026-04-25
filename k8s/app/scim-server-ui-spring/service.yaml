@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: scim-server-ui-spring
+  labels:
+    app.kubernetes.io/name: scim-server-ui-spring
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: scim-server-ui-spring
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

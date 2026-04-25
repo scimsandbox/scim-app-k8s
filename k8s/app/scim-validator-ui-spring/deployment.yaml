@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scim-validator-ui-spring
+  labels:
+    app.kubernetes.io/name: scim-validator-ui-spring
+    app.kubernetes.io/component: scim-validator-ui-spring
+spec:
+  replicas: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scim-validator-ui-spring
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: scim-validator-ui-spring
+        app.kubernetes.io/component: scim-validator-ui-spring
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "9090"
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: workload
+                    operator: NotIn
+                    values:
+                      - database
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: ghcr.io/cloudnative-pg/postgresql:18.1-standard-trixie
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: scim-validator-db
+          command:
+            - /bin/sh
+            - -ec
+            - until pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -d "$POSTGRES_DATABASE"; do echo waiting for postgres; sleep 2; done
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+        - name: flyway-migrate
+          image: edipal/scim-validator-db:dev
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: scim-validator-db
+          env:
+            - name: FLYWAY_URL
+              value: "jdbc:postgresql://$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DATABASE)"
+            - name: FLYWAY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: scim-postgres-validator-auth
+                  key: username
+            - name: FLYWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: scim-postgres-validator-auth
+                  key: password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      containers:
+        - name: scim-validator-ui-spring
+          image: edipal/scim-validator-ui-spring:dev
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: scim-validator-ui-spring
+            - configMapRef:
+                name: scim-validator-db
+            - secretRef:
+                name: scim-validator-ui-spring
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DATABASE)"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: scim-postgres-validator-auth
+                  key: username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: scim-postgres-validator-auth
+                  key: password
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 500m
+              ephemeral-storage: 256Mi
+              memory: 1Gi
+            limits:
+              cpu: 750m
+              ephemeral-storage: 1Gi
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL

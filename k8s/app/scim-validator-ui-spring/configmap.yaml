@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scim-validator-ui-spring
+data:
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "15"
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "15"
+  SPRING_DATASOURCE_HIKARI_KEEPALIVE_TIME: "300000"
+  AUTH0_REDIRECT_URI: https://val.scimsandbox.net/login/oauth2/code/auth0
+  APP_SECURITY_OIDC_ROLE_CLAIM: https://scimsandbox.net/roles
+  APP_SECURITY_OIDC_ADMIN_ROLE: admin
+  APP_SECURITY_OIDC_USER_ROLE: user
+  APP_PLAYGROUND_URL: https://ui.scimsandbox.net

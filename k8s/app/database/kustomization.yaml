@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: scim
+
+resources:
+  - cluster-server.yaml
+  - cluster-validator.yaml
+  - scim-server-db-configmap.yaml
+  - scim-validator-db-configmap.yaml
+
+generators:
+  - ksops-secret-generator.yaml

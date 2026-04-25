@@ -1,0 +1,510 @@
+{
+  "name": "SCIM PostgreSQL + Server Impl",
+  "description": "Single-page New Relic dashboard for the CloudNativePG PostgreSQL cluster and the selected server implementation deployed as scim-server-impl in the scim workspace.",
+  "permissions": "PUBLIC_READ_WRITE",
+  "pages": [
+    {
+      "name": "Overview",
+      "description": "Database and application runtime overview",
+      "widgets": [
+        {
+          "title": "SCIM Monitoring",
+          "layout": {
+            "column": 1,
+            "row": 1,
+            "width": 12,
+            "height": 1
+          },
+          "visualization": {
+            "id": "viz.markdown"
+          },
+          "rawConfiguration": {
+            "text": "### SCIM database + server overview\nAggregate dashboard for the PostgreSQL cluster and the selected server implementation deployed as `scim-server-impl`. API widgets are scoped to `/ws/%`, and implementation-specific charts use Spring `http_server_requests_seconds_*` metrics or Go `scim_go_*` metrics depending on which overlay is deployed."
+          }
+        },
+        {
+          "title": "PostgreSQL",
+          "layout": {
+            "column": 1,
+            "row": 2,
+            "width": 12,
+            "height": 1
+          },
+          "visualization": {
+            "id": "viz.markdown"
+          },
+          "rawConfiguration": {
+            "text": "### PostgreSQL cluster\nFocus: availability, session load, storage growth, pod CPU and memory usage, transaction activity, WAL churn, and cache efficiency for `scim-postgres-server`."
+          }
+        },
+        {
+          "title": "DB Up",
+          "layout": {
+            "column": 1,
+            "row": 3,
+            "width": 2,
+            "height": 2
+          },
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT latest(cnpg_collector_up) WHERE cluster = 'scim-postgres-server'"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Archive Lag (s)",
+          "layout": {
+            "column": 3,
+            "row": 3,
+            "width": 2,
+            "height": 2
+          },
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT latest(cnpg_pg_stat_archiver_seconds_since_last_archival)"
+              }
+            ]
+          }
+        },
+        {
+          "title": "DB CPU (%)",
+          "layout": {
+            "column": 5,
+            "row": 3,
+            "width": 4,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM K8sContainerSample SELECT average(cpuCoresUtilization) WHERE namespaceName = 'scim' AND status = 'Running' AND podName LIKE 'scim-postgres-server-%' TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "DB Memory (MiB)",
+          "layout": {
+            "column": 9,
+            "row": 3,
+            "width": 4,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM K8sContainerSample SELECT average(memoryWorkingSetBytes) / 1048576 WHERE namespaceName = 'scim' AND status = 'Running' AND podName LIKE 'scim-postgres-server-%' TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Active DB Sessions",
+          "layout": {
+            "column": 1,
+            "row": 6,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT sum(cnpg_backends_total) WHERE datname = 'scimserver' AND state = 'active' AND usename != 'postgres' TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "DB Size (GiB)",
+          "layout": {
+            "column": 7,
+            "row": 6,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT latest(cnpg_pg_database_size_bytes) / 1073741824 WHERE datname = 'scimserver' TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Transactions / min",
+          "layout": {
+            "column": 1,
+            "row": 9,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(cnpg_pg_stat_database_xact_commit), 1 minute) WHERE datname = 'scimserver' TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(cnpg_pg_stat_database_xact_rollback), 1 minute) WHERE datname = 'scimserver' TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "WAL Generated (MiB/min)",
+          "layout": {
+            "column": 7,
+            "row": 9,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(cnpg_collector_wal_bytes), 1 minute) / 1048576 TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Buffer Cache Hit Ratio (%)",
+          "layout": {
+            "column": 1,
+            "row": 12,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT 100 * sum(cnpg_pg_stat_database_blks_hit) / (sum(cnpg_pg_stat_database_blks_hit) + sum(cnpg_pg_stat_database_blks_read)) WHERE datname = 'scimserver' TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Tuple Churn / min",
+          "layout": {
+            "column": 7,
+            "row": 12,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(cnpg_pg_stat_database_tup_inserted), 1 minute) WHERE datname = 'scimserver' TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(cnpg_pg_stat_database_tup_updated), 1 minute) WHERE datname = 'scimserver' TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(cnpg_pg_stat_database_tup_deleted), 1 minute) WHERE datname = 'scimserver' TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Server Impl",
+          "layout": {
+            "column": 1,
+            "row": 15,
+            "width": 12,
+            "height": 1
+          },
+          "visualization": {
+            "id": "viz.markdown"
+          },
+          "rawConfiguration": {
+            "text": "### Selected server implementation\nFocus: pod CPU and memory usage, active DB sessions, HTTP API load, and SCIM latency for the selected `scim-server-impl` deployment. Spring charts read Micrometer metrics, while Go charts read `scim_go_*` counters and histograms."
+          }
+        },
+        {
+          "title": "Server CPU (%)",
+          "layout": {
+            "column": 1,
+            "row": 16,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM K8sContainerSample SELECT average(cpuCoresUtilization) WHERE namespaceName = 'scim' AND deploymentName = 'scim-server-impl' AND containerName = 'scim-server-impl' AND status = 'Running' TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Server Memory (MiB)",
+          "layout": {
+            "column": 7,
+            "row": 16,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM K8sContainerSample SELECT average(memoryWorkingSetBytes) / 1048576 WHERE namespaceName = 'scim' AND deploymentName = 'scim-server-impl' AND containerName = 'scim-server-impl' AND status = 'Running' TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Active App DB Sessions",
+          "layout": {
+            "column": 1,
+            "row": 19,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT sum(cnpg_backends_total) WHERE datname = 'scimserver' AND state = 'active' AND usename != 'postgres' TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "API Error Rate (%)",
+          "layout": {
+            "column": 7,
+            "row": 19,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT percentage(sum(http_server_requests_seconds_count), WHERE outcome = 'SERVER_ERROR') WHERE uri LIKE '/ws/%' TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT percentage(sum(scim_go_operation_requests_total), WHERE outcome = 'SERVER_ERROR') TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "HTTP Requests / min",
+          "layout": {
+            "column": 1,
+            "row": 22,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(http_server_requests_seconds_count), 1 minute) WHERE uri LIKE '/ws/%' TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(scim_go_operation_requests_total), 1 minute) TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "HTTP Avg Latency (ms)",
+          "layout": {
+            "column": 7,
+            "row": 22,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT 1000 * sum(http_server_requests_seconds_sum) / sum(http_server_requests_seconds_count) WHERE uri LIKE '/ws/%' TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT 1000 * sum(scim_go_operation_duration_seconds_sum) / sum(scim_go_operation_duration_seconds_count) TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "SCIM Operations / min",
+          "layout": {
+            "column": 1,
+            "row": 25,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(scim_operation_duration_seconds_count), 1 minute) TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(scim_go_operation_duration_seconds_count), 1 minute) TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "SCIM Avg Duration (ms)",
+          "layout": {
+            "column": 7,
+            "row": 25,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT 1000 * sum(scim_operation_duration_seconds_sum) / sum(scim_operation_duration_seconds_count) TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT 1000 * sum(scim_go_operation_duration_seconds_sum) / sum(scim_go_operation_duration_seconds_count) TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "SCIM Operations by Type / min",
+          "layout": {
+            "column": 1,
+            "row": 28,
+            "width": 6,
+            "height": 4
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(scim_operation_duration_seconds_count), 1 minute) FACET operation LIMIT MAX TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(scim_go_operation_duration_seconds_count), 1 minute) FACET resource, action LIMIT MAX TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "SCIM Avg Duration by Type (ms)",
+          "layout": {
+            "column": 7,
+            "row": 28,
+            "width": 6,
+            "height": 4
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT 1000 * sum(scim_operation_duration_seconds_sum) / sum(scim_operation_duration_seconds_count) FACET operation LIMIT MAX TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT 1000 * sum(scim_go_operation_duration_seconds_sum) / sum(scim_go_operation_duration_seconds_count) FACET resource, action LIMIT MAX TIMESERIES"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
