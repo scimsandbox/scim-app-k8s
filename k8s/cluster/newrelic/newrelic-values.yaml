@@ -4,14 +4,17 @@ global:
   customSecretLicenseKey: license-key
   region: EU
   lowDataMode: true
+newrelic-infrastructure:
+  controlPlane:
+    enabled: false
 k8s-agents-operator:
-  enabled: true
+  enabled: false
 kube-state-metrics:
   enabled: true
   image:
     tag: v2.13.0
 kubeEvents:
-  enabled: true
+  enabled: false
 logging:
   enabled: true
 newrelic-logging:
@@ -22,7 +25,7 @@ newrelic-logging:
         [INPUT]
             Name tail
             Path /var/log/containers/*.log
-            Exclude_Path /var/log/containers/*_newrelic_*.log
+            Exclude_Path /var/log/containers/*_newrelic_*.log,/var/log/containers/*_kube-system_*.log,/var/log/containers/*_cloudflared_*.log
             Tag kube.*
             Mem_Buf_Limit 7MB
             Skip_Long_Lines On
@@ -34,22 +37,22 @@ newrelic-prometheus-agent:
       integrations_filter:
         enabled: true
       jobs:
-        - job_name_prefix: custom-scrape
+        - job_name_prefix: scim-dashboard
           integrations_filter:
             enabled: false
           target_discovery:
             pod: true
-            endpoints: true
+            endpoints: false
             filter:
               namespaces:
                 - scim
-                - cloudflared
               annotations:
                 "prometheus.io/scrape": "true"
           metric_relabel_configs:
+            # Keep all SCIM metrics, including histogram buckets used by bucketPercentile() dashboard queries.
             - source_labels: [__name__]
-              action: drop
-              regex: '(cnpg_pg_settings_setting)'
+              action: keep
+              regex: '(cnpg_collector_up|cnpg_pg_stat_archiver_seconds_since_last_archival|cnpg_backends_total|cnpg_pg_database_size_bytes|cnpg_pg_stat_database_xact_commit|cnpg_pg_stat_database_xact_rollback|cnpg_collector_wal_bytes|cnpg_pg_stat_database_blks_hit|cnpg_pg_stat_database_blks_read|cnpg_pg_stat_database_tup_inserted|cnpg_pg_stat_database_tup_updated|cnpg_pg_stat_database_tup_deleted|http_server_requests_seconds_count|http_server_requests_seconds_sum|scim_.*)'
 
 nr-ebpf-agent:
-  enabled: true
+  enabled: false

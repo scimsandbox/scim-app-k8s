@@ -349,7 +349,7 @@
               },
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT percentage(sum(scim_go_operation_requests_total), WHERE outcome = 'SERVER_ERROR') TIMESERIES"
+                "query": "FROM Metric SELECT percentage(sum(scim_go_operation_duration_seconds_count), WHERE http_status LIKE '5%') TIMESERIES"
               }
             ]
           }
@@ -373,7 +373,7 @@
               },
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT rate(sum(scim_go_operation_requests_total), 1 minute) TIMESERIES"
+                "query": "FROM Metric SELECT rate(sum(scim_go_operation_duration_seconds_count), 1 minute) TIMESERIES"
               }
             ]
           }
@@ -427,7 +427,7 @@
           }
         },
         {
-          "title": "SCIM Avg Duration (ms)",
+          "title": "SCIM P95 Duration (ms)",
           "layout": {
             "column": 7,
             "row": 25,
@@ -441,11 +441,11 @@
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT 1000 * sum(scim_operation_duration_seconds_sum) / sum(scim_operation_duration_seconds_count) TIMESERIES"
+                "query": "FROM Metric SELECT 1000 * bucketPercentile(scim_operation_duration_seconds_bucket, 95) TIMESERIES"
               },
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT 1000 * sum(scim_go_operation_duration_seconds_sum) / sum(scim_go_operation_duration_seconds_count) TIMESERIES"
+                "query": "FROM Metric SELECT 1000 * bucketPercentile(scim_go_operation_duration_seconds_bucket, 95) TIMESERIES"
               }
             ]
           }
@@ -472,13 +472,13 @@
               },
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT rate(sum(scim_go_operation_duration_seconds_count), 1 minute) FACET resource, action LIMIT MAX TIMESERIES"
+                "query": "FROM Metric SELECT rate(sum(scim_go_operation_duration_seconds_count), 1 minute) FACET operation LIMIT MAX TIMESERIES"
               }
             ]
           }
         },
         {
-          "title": "SCIM Avg Duration by Type (ms)",
+          "title": "SCIM P95 Duration by Type (ms)",
           "layout": {
             "column": 7,
             "row": 28,
@@ -495,11 +495,65 @@
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT 1000 * sum(scim_operation_duration_seconds_sum) / sum(scim_operation_duration_seconds_count) FACET operation LIMIT MAX TIMESERIES"
+                "query": "FROM Metric SELECT 1000 * bucketPercentile(scim_operation_duration_seconds_bucket, 95) FACET operation LIMIT MAX TIMESERIES"
               },
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT 1000 * sum(scim_go_operation_duration_seconds_sum) / sum(scim_go_operation_duration_seconds_count) FACET resource, action LIMIT MAX TIMESERIES"
+                "query": "FROM Metric SELECT 1000 * bucketPercentile(scim_go_operation_duration_seconds_bucket, 95) FACET operation LIMIT MAX TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "SCIM Authentication / min",
+          "layout": {
+            "column": 1,
+            "row": 32,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(scim_operation_authentication_total), 1 minute) FACET state LIMIT MAX TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(scim_go_operation_authentication_total), 1 minute) FACET state LIMIT MAX TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "SCIM Throttled / min",
+          "layout": {
+            "column": 7,
+            "row": 32,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(scim_operation_throttled_total), 1 minute) FACET state LIMIT MAX TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT rate(sum(scim_go_operation_throttled_total), 1 minute) FACET state LIMIT MAX TIMESERIES"
               }
             ]
           }
