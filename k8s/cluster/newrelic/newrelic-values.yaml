@@ -5,8 +5,13 @@ global:
   region: EU
   lowDataMode: true
 newrelic-infrastructure:
+  lowDataMode: true
   controlPlane:
     enabled: false
+  kubelet:
+    interval: 120s
+  ksm:
+    interval: 120s
 k8s-agents-operator:
   enabled: false
 kube-state-metrics:
@@ -19,6 +24,7 @@ logging:
   enabled: true
 newrelic-logging:
   lowDataMode: true
+  endpoint: https://log-api.eu.newrelic.com/log/v1
   fluentBit:
     config:
       inputs: |
@@ -30,14 +36,16 @@ newrelic-logging:
             Mem_Buf_Limit 7MB
             Skip_Long_Lines On
 newrelic-prometheus-agent:
-  enabled: false
+  enabled: true
   lowDataMode: true
   config:
+    scrape_interval: 120s
     kubernetes:
       integrations_filter:
         enabled: true
       jobs:
         - job_name_prefix: scim-dashboard
+          scrape_interval: 120s
           integrations_filter:
             enabled: false
           target_discovery:
@@ -56,3 +64,5 @@ newrelic-prometheus-agent:
 
 nr-ebpf-agent:
   enabled: false
+
+
