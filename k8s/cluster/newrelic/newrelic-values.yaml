@@ -33,8 +33,29 @@ newrelic-logging:
             Path /var/log/containers/*.log
             Exclude_Path /var/log/containers/*_newrelic_*.log,/var/log/containers/*_kube-system_*.log,/var/log/containers/*_cloudflared_*.log
             Tag kube.*
+            Parser cri
             Mem_Buf_Limit 7MB
             Skip_Long_Lines On
+      filters: |
+        [FILTER]
+            Name parser
+            Match kube.*
+            Key_Name log
+            Parser json
+            Reserve_Data On
+      parsers: |
+        [PARSER]
+            Name cri
+            Format regex
+            Regex ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+            Time_Key time
+            Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+
+        [PARSER]
+            Name json
+            Format json
+            Time_Key time
+            Time_Format %Y-%m-%dT%H:%M:%S%z
 newrelic-prometheus-agent:
   enabled: true
   lowDataMode: true
