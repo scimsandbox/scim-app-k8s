@@ -79,9 +79,12 @@ newrelic-prometheus-agent:
                 "prometheus.io/scrape": "true"
           metric_relabel_configs:
             # Keep all SCIM metrics, including histogram buckets used by bucketPercentile() dashboard queries.
+            # http_server_requests_seconds_* is deliberately excluded: the only pods emitting it are
+            # scim-server-ui-spring and scim-validator-ui-spring (~89k data points/day), no dashboard
+            # widget reads it, and the server impl is charted from scim_operation_* / scim_go_operation_*.
             - source_labels: [__name__]
               action: keep
-              regex: '(cnpg_collector_up|cnpg_pg_stat_archiver_seconds_since_last_archival|cnpg_backends_total|cnpg_pg_database_size_bytes|cnpg_pg_stat_database_xact_commit|cnpg_pg_stat_database_xact_rollback|cnpg_collector_wal_bytes|cnpg_pg_stat_database_blks_hit|cnpg_pg_stat_database_blks_read|cnpg_pg_stat_database_tup_inserted|cnpg_pg_stat_database_tup_updated|cnpg_pg_stat_database_tup_deleted|http_server_requests_seconds_count|http_server_requests_seconds_sum|scim_.*)'
+              regex: '(cnpg_collector_up|cnpg_pg_stat_archiver_seconds_since_last_archival|cnpg_backends_total|cnpg_pg_database_size_bytes|cnpg_pg_stat_database_xact_commit|cnpg_pg_stat_database_xact_rollback|cnpg_collector_wal_bytes|cnpg_pg_stat_database_blks_hit|cnpg_pg_stat_database_blks_read|cnpg_pg_stat_database_tup_inserted|cnpg_pg_stat_database_tup_updated|cnpg_pg_stat_database_tup_deleted|scim_.*)'
 
 nr-ebpf-agent:
   enabled: false
