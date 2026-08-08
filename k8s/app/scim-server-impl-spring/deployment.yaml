@@ -8,6 +8,10 @@ metadata:
 spec:
   replicas: 2
   minReadySeconds: 10
+  # Kubernetes defaults to 10, and every retained ReplicaSet is sampled by the
+  # New Relic k8s integration (K8sReplicasetSample). Two revisions is enough
+  # rollback depth given deploys are pinned image tags re-applied from git.
+  revisionHistoryLimit: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:

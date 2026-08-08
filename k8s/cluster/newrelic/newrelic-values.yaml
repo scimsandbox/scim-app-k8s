@@ -12,14 +12,33 @@ newrelic-infrastructure:
     interval: 120s
   ksm:
     interval: 120s
+  common:
+    config:
+      # Only the scim namespace is monitored, but the kubelet/ksm scrapers default to the
+      # whole cluster: scim was just 7% of K8sVolumeSample and 17% of K8sContainerSample,
+      # while the newrelic namespace alone was 52% and 40% respectively - the monitoring
+      # stack observing itself. InfraIntegrationBytes was 35.8 of 45.8 GB per 30 days.
+      # Uses the kubernetes.io/metadata.name label that Kubernetes applies to every
+      # namespace automatically, so no namespace needs relabelling. Add more namespaces
+      # by extending `values`. Non-namespaced samples (K8sNodeSample, K8sClusterSample)
+      # are unaffected, so node-level visibility is retained.
+      namespaceSelector:
+        matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: In
+            values:
+              - scim
 k8s-agents-operator:
   enabled: false
 kube-state-metrics:
   enabled: true
   image:
     tag: v2.13.0
+# Surfaces OOMKilled, FailedScheduling, evictions, probe failures and image-pull
+# backoffs as InfrastructureEvent. Restart counts alone say a pod died; the event
+# says why. Volume scales with cluster churn, so watch NrConsumption after enabling.
 kubeEvents:
-  enabled: false
+  enabled: true
 logging:
   enabled: true
 newrelic-logging:
@@ -36,6 +55,13 @@ newrelic-logging:
             Parser cri
             Mem_Buf_Limit 7MB
             Skip_Long_Lines On
+      # NOTE: this `filters` block is INERT while lowDataMode is true. The chart renders
+      # `lowDataModeFilters` instead and ignores `filters` entirely, so the parser filter
+      # below has never run. Structured attributes (level, path, method, status, duration)
+      # come from New Relic parsing the JSON payload at ingest, not from fluent-bit.
+      # Do not simply flip lowDataMode to false: this block would then REPLACE the chart's
+      # default filter chain, dropping the kubernetes enricher and with it the
+      # container_name / pod_name / namespace_name attributes every log widget relies on.
       filters: |
         [FILTER]
             Name parser
@@ -43,6 +69,16 @@ newrelic-logging:
             Key_Name log
             Parser json
             Reserve_Data On
+      # extraFilters is appended after the active filter chain, so this one does run.
+      # Drops liveness/readiness probe and Prometheus scrape request logs: 27,364 of
+      # scim-server-impl's 27,707 daily lines (98.8%), all level=info carrying the single
+      # message "http request completed", leaving ~331 real SCIM requests a day.
+      # Matches the raw `log` record key because fluent-bit never parses the JSON here.
+      extraFilters: |
+        [FILTER]
+            Name   grep
+            Match  kube.*
+            Exclude log "path":"/(actuator/health|metrics)"
       parsers: |
         [PARSER]
             Name cri
@@ -82,9 +118,15 @@ newrelic-prometheus-agent:
             # http_server_requests_seconds_* is deliberately excluded: the only pods emitting it are
             # scim-server-ui-spring and scim-validator-ui-spring (~89k data points/day), no dashboard
             # widget reads it, and the server impl is charted from scim_operation_* / scim_go_operation_*.
+            #
+            # The go_*/process_* entries cover runtime health for scim-server-impl-go (goroutine leaks,
+            # heap growth, thread growth, GC pauses, file-descriptor exhaustion). Deliberately a short
+            # list rather than go_.*, which is ~40 series per target. Note these also match the
+            # CloudNativePG exporter (also a Go binary), so dashboard widgets scope with
+            # app_kubernetes_io_name.
             - source_labels: [__name__]
               action: keep
-              regex: '(cnpg_collector_up|cnpg_pg_stat_archiver_seconds_since_last_archival|cnpg_backends_total|cnpg_pg_database_size_bytes|cnpg_pg_stat_database_xact_commit|cnpg_pg_stat_database_xact_rollback|cnpg_collector_wal_bytes|cnpg_pg_stat_database_blks_hit|cnpg_pg_stat_database_blks_read|cnpg_pg_stat_database_tup_inserted|cnpg_pg_stat_database_tup_updated|cnpg_pg_stat_database_tup_deleted|scim_.*)'
+              regex: '(cnpg_collector_up|cnpg_pg_stat_archiver_seconds_since_last_archival|cnpg_backends_total|cnpg_pg_database_size_bytes|cnpg_pg_stat_database_xact_commit|cnpg_pg_stat_database_xact_rollback|cnpg_collector_wal_bytes|cnpg_pg_stat_database_blks_hit|cnpg_pg_stat_database_blks_read|cnpg_pg_stat_database_tup_inserted|cnpg_pg_stat_database_tup_updated|cnpg_pg_stat_database_tup_deleted|go_goroutines|go_threads|go_memstats_heap_inuse_bytes|go_gc_duration_seconds.*|process_open_fds|process_max_fds|scim_.*)'
 
 nr-ebpf-agent:
   enabled: false

@@ -325,7 +325,7 @@
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT 100 * (filter(sum(scim_operation_duration_seconds_count), WHERE http_status LIKE '5%') + filter(sum(scim_go_operation_duration_seconds_count), WHERE http_status LIKE '5%')) / (sum(scim_operation_duration_seconds_count) + sum(scim_go_operation_duration_seconds_count)) AS '5xx %' WHERE metricName IN ('scim_operation_duration_seconds_count', 'scim_go_operation_duration_seconds_count') TIMESERIES"
+                "query": "FROM Metric SELECT 100 * (filter(sum(scim_operation_duration_seconds_count), WHERE http_status IN ('500', '502', '503', '504')) + filter(sum(scim_go_operation_duration_seconds_count), WHERE http_status IN ('500', '502', '503', '504'))) / (sum(scim_operation_duration_seconds_count) + sum(scim_go_operation_duration_seconds_count)) AS 'Server error %' WHERE metricName IN ('scim_operation_duration_seconds_count', 'scim_go_operation_duration_seconds_count') TIMESERIES"
               }
             ]
           }
@@ -492,6 +492,227 @@
               {
                 "accountId": 4067258,
                 "query": "FROM Metric SELECT rate(sum(scim_operation_throttled_total), 1 minute) + rate(sum(scim_go_operation_throttled_total), 1 minute) AS 'Requests / min' WHERE metricName IN ('scim_operation_throttled_total', 'scim_go_operation_throttled_total') FACET state LIMIT MAX TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Go Runtime",
+          "layout": {
+            "column": 1,
+            "row": 35,
+            "width": 12,
+            "height": 1
+          },
+          "visualization": {
+            "id": "viz.markdown"
+          },
+          "rawConfiguration": {
+            "text": "### Go runtime health\nApplies to the Go overlay only — these come from the Go collector on `scim-server-impl-go`'s `/metrics`, and stay empty under `k8s/app-spring`. Covers the failure modes that are invisible in the SCIM request metrics until the pod dies: goroutine leaks, heap growth, GC pause creep, and file-descriptor exhaustion.\n\nEvery query is scoped with `app_kubernetes_io_name = 'scim-server-impl'` because `go_*` and `process_*` are emitted by every Go binary in the cluster — the CloudNativePG exporter, cloudflared and cilium-operator all report `go_goroutines` too, and an unscoped query silently blends them.\n\n`go_gc_duration_seconds` is a Prometheus *summary*: its `quantile` series ingest as usable gauges, but `_sum` reads back `null` and `_count` is delta-encoded, so GC pause is charted from the `quantile` label rather than a sum/count average. `process_max_fds` is scraped but not charted — the ceiling is 1,048,576, so plotting it would flatten the open-FD line to zero."
+          }
+        },
+        {
+          "title": "Goroutines",
+          "layout": {
+            "column": 1,
+            "row": 36,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT latest(go_goroutines) WHERE app_kubernetes_io_name = 'scim-server-impl' FACET pod LIMIT MAX TIMESERIES"
+              },
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT max(go_threads) AS 'OS threads (max across pods)' WHERE app_kubernetes_io_name = 'scim-server-impl' TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Heap In Use (MiB)",
+          "layout": {
+            "column": 7,
+            "row": 36,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT latest(go_memstats_heap_inuse_bytes) / 1048576 WHERE app_kubernetes_io_name = 'scim-server-impl' FACET pod LIMIT MAX TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "GC Pause Max (ms)",
+          "layout": {
+            "column": 1,
+            "row": 39,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT 1000 * latest(go_gc_duration_seconds) WHERE app_kubernetes_io_name = 'scim-server-impl' AND quantile = '1.0' FACET pod LIMIT MAX TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Open File Descriptors",
+          "layout": {
+            "column": 7,
+            "row": 39,
+            "width": 6,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Metric SELECT latest(process_open_fds) WHERE app_kubernetes_io_name = 'scim-server-impl' FACET pod LIMIT MAX TIMESERIES"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Cluster Events",
+          "layout": {
+            "column": 1,
+            "row": 42,
+            "width": 12,
+            "height": 1
+          },
+          "visualization": {
+            "id": "viz.markdown"
+          },
+          "rawConfiguration": {
+            "text": "### Kubernetes events\nWhy a pod died, not just that it did — `OOMKilled`, `FailedScheduling`, `Evicted`, `Unhealthy` probe failures and image-pull backoffs. Restart counts on the charts above tell you something happened; these say what.\n\nEvery widget filters on `event.reason IS NOT NULL`. The `nri-kube-events` integration writes two very different things into `InfrastructureEvent`: real Kubernetes events, and `*.Description` records that are full `kubectl describe` dumps carrying the text in `summary` / `summary.part[0..15]`. The description records have no `event.*` attributes, and on this cluster they outnumber real events roughly 40 to 1, so an unfiltered `count(*)` is meaningless. They are a one-time sweep per `describeRefresh: 24h`, not a continuous stream, so they cost about 0.01 GB/month and are left enabled."
+          }
+        },
+        {
+          "title": "Warning Events",
+          "layout": {
+            "column": 1,
+            "row": 43,
+            "width": 3,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM InfrastructureEvent SELECT count(*) AS 'Warnings' WHERE `event.type` = 'Warning'"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Kubernetes Events (recent)",
+          "layout": {
+            "column": 4,
+            "row": 43,
+            "width": 9,
+            "height": 3
+          },
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM InfrastructureEvent SELECT `event.type` AS 'Type', `event.involvedObject.namespace` AS 'Namespace', `event.involvedObject.kind` AS 'Kind', `event.involvedObject.name` AS 'Object', `event.reason` AS 'Reason', `event.message` AS 'Message' WHERE `event.reason` IS NOT NULL LIMIT 50"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Logs",
+          "layout": {
+            "column": 1,
+            "row": 46,
+            "width": 12,
+            "height": 1
+          },
+          "visualization": {
+            "id": "viz.markdown"
+          },
+          "rawConfiguration": {
+            "text": "### Application and database logs\nThe error table is expected to be empty: `scim-server-impl` has logged zero `warn`/`error`/`fatal` lines, and the only entries in the last 7 days were 5 PostgreSQL lines (`function min(uuid) does not exist`, `operator is not unique`, and 3× `connection to client lost`). It is an exception channel, not a dashboard filler — rows appearing here means something changed.\n\nSlowest requests are charted from logs rather than metrics because the histogram buckets top out at 1s and only record aggregates. The log line carries per-request `method`, `path`, `status` and `duration`, which is what you need to attribute a slow response to a specific endpoint.\n\nProbe and scrape logs are dropped at fluent-bit via `extraFilters`: `/actuator/health` and `/metrics` were 98.8% of this container's output (27,364 of 27,707 lines a day), all carrying the identical message `http request completed`. Note the values file's `filters` block is inert while `lowDataMode` is true — the chart renders `lowDataModeFilters` instead — so `extraFilters` is the only key that appends to the running chain."
+          }
+        },
+        {
+          "title": "Errors & Warnings",
+          "layout": {
+            "column": 1,
+            "row": 47,
+            "width": 6,
+            "height": 4
+          },
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Log SELECT container_name AS 'Container', level AS 'Level', `record.error_severity` AS 'PG Severity', message AS 'Message', `record.message` AS 'PG Message' WHERE level IN ('error', 'warn', 'fatal') OR `record.error_severity` IN ('ERROR', 'FATAL', 'PANIC') LIMIT 50"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Slowest SCIM Requests",
+          "layout": {
+            "column": 7,
+            "row": 47,
+            "width": 6,
+            "height": 4
+          },
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountId": 4067258,
+                "query": "FROM Log SELECT method AS 'Method', path AS 'Path', status AS 'Status', 1000 * duration AS 'ms' WHERE container_name = 'scim-server-impl' AND path LIKE '/ws/%' ORDER BY duration DESC LIMIT 20"
               }
             ]
           }

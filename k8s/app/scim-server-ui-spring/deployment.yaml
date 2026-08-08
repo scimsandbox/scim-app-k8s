@@ -8,6 +8,9 @@ metadata:
 spec:
   replicas: 1
   minReadySeconds: 10
+  # See scim-server-impl-go/deployment.yaml: caps retained ReplicaSets, which
+  # the New Relic k8s integration samples individually.
+  revisionHistoryLimit: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: scim-server-ui-spring
