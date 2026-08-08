@@ -2,53 +2,85 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: scim-db-backup
-  namespace: default
 spec:
   # Run every day at 03:00 AM
   schedule: "0 3 * * *"
+  # A dump that overruns into the next window must not race the following run.
+  concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
+      backoffLimit: 2
       template:
         spec:
           restartPolicy: OnFailure
           containers:
             - name: backup
-              image: alpine:3.19
+              image: alpine:3.23
               command:
                 - /bin/sh
                 - -c
                 - |
-                  set -e
-                  
-                  # Install required packages
-                  apk add --no-cache postgresql-client restic openssh-client curl bash sshpass
-                  
-                  # Configure SSH
-                  mkdir -p ~/.ssh
-                  # Disable StrictHostKeyChecking for the Storage Box
-                  echo -e "Host *.your-storagebox.de\n\tStrictHostKeyChecking no\n" > ~/.ssh/config
-                  chmod 600 ~/.ssh/config
+                  # pipefail is what makes a failing pg_dump fail the job rather
+                  # than uploading a truncated dump as if it were healthy.
+                  set -euo pipefail
 
-                  # Environment variables for restic and sshpass
-                  export RESTIC_PASSWORD=$(cat /etc/backup-secrets/restic-password)
-                  export SSHPASS=$(cat /etc/backup-secrets/ssh-password)
-                  export RESTIC_REPOSITORY="sftp:${STORAGE_BOX_USER}@${STORAGE_BOX_HOST}:${STORAGE_BOX_PATH}"
+                  # postgresql18-client must match the CloudNativePG major
+                  # version in k8s/app/database (pg_dump refuses a newer server).
+                  apk add --no-cache postgresql18-client rclone ca-certificates
 
-                  # Initialize restic repo if it doesn't exist
-                  sshpass -e restic snapshots || sshpass -e restic init
+                  # rclone refreshes the Google OAuth token while it runs and has
+                  # to write it back, so the config cannot be used in place from
+                  # the read-only secret mount.
+                  install -m 600 /etc/backup-secrets/rclone.conf /tmp/rclone.conf
+                  export RCLONE_CONFIG=/tmp/rclone.conf
 
-                  echo "Starting backup of scim-postgres-server..."
-                  PGPASSWORD=${SERVER_DB_PASSWORD} pg_dump -h scim-postgres-server-rw -U postgres scimserver | \
-                    sshpass -e restic backup --stdin --stdin-filename scim-server.sql
+                  DATE=$(date -u +%Y-%m-%d)
+                  REMOTE="gdrive-crypt:"
 
-                  echo "Starting backup of scim-postgres-validator..."
-                  PGPASSWORD=${VALIDATOR_DB_PASSWORD} pg_dump -h scim-postgres-validator-rw -U postgres scimvalidator | \
-                    sshpass -e restic backup --stdin --stdin-filename scim-validator.sql
+                  # Anything smaller than this is a stub, not a database.
+                  MIN_BYTES=4096
 
-                  echo "Pruning old backups, keeping the last 3..."
-                  sshpass -e restic forget --keep-last 3 --prune
+                  # rcat creates the object before a mid-stream failure can
+                  # surface, so a failed run must not leave a truncated file
+                  # sitting in Drive looking like a real backup.
+                  discard() {
+                    echo "Removing partial object $1." >&2
+                    rclone deletefile "$1" || true
+                    exit 1
+                  }
+
+                  backup_db() {
+                    name=$1
+                    host=$2
+                    db=$3
+                    password=$4
+                    object="${REMOTE}${name}-${DATE}.sql.gz"
+
+                    echo "Backing up ${db} from ${host} to ${object}..."
+                    if ! PGPASSWORD="${password}" pg_dump -h "${host}" -U postgres "${db}" \
+                        | gzip -c \
+                        | rclone rcat "${object}"; then
+                      echo "ERROR: dump of ${db} failed." >&2
+                      discard "${object}"
+                    fi
+
+                    size=$(rclone lsf --format s "${object}")
+                    if [ -z "${size}" ] || [ "${size}" -lt "${MIN_BYTES}" ]; then
+                      echo "ERROR: ${object} is ${size:-0} bytes, expected at least ${MIN_BYTES}." >&2
+                      discard "${object}"
+                    fi
+                    echo "Uploaded ${object} (${size} bytes)."
+                  }
+
+                  backup_db scim-server    scim-postgres-server-rw    scimserver    "${SERVER_DB_PASSWORD}"
+                  backup_db scim-validator scim-postgres-validator-rw scimvalidator "${VALIDATOR_DB_PASSWORD}"
+
+                  # Only reached when both uploads above succeeded and passed the
+                  # size check, so a bad run can never prune good history.
+                  echo "Pruning backups older than 14 days..."
+                  rclone delete --min-age 14d --include "*.sql.gz" "${REMOTE}"
 
                   echo "Backup completed successfully!"
               env:
@@ -62,21 +94,6 @@ spec:
                     secretKeyRef:
                       name: scim-postgres-validator-superuser
                       key: password
-                - name: STORAGE_BOX_USER
-                  valueFrom:
-                    secretKeyRef:
-                      name: backup-secrets
-                      key: storage-box-user
-                - name: STORAGE_BOX_HOST
-                  valueFrom:
-                    secretKeyRef:
-                      name: backup-secrets
-                      key: storage-box-host
-                - name: STORAGE_BOX_PATH
-                  valueFrom:
-                    secretKeyRef:
-                      name: backup-secrets
-                      key: storage-box-path
               volumeMounts:
                 - name: backup-secrets
                   mountPath: /etc/backup-secrets

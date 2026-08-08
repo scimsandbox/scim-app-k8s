@@ -1,76 +1,124 @@
-# Database Backup to Hetzner Storage Box
+# Database Backup to Google Drive
 
-This guide explains how to set up daily backups of the `scim-postgres-server` and `scim-postgres-validator` CloudNativePG databases directly into a Hetzner Storage Box via SSH/SFTP. The backup strategy uses [Restic](https://restic.net/) to provide incremental backups with deduplication and keeps exactly the last 3 backps.
+This guide explains how to set up daily backups of the `scim-postgres-server` and `scim-postgres-validator` CloudNativePG databases into Google Drive. Dumps are compressed, encrypted client-side with [rclone crypt](https://rclone.org/crypt/), and named by date. The last 14 days are kept.
 
 ## Architecture
 
-We use a Kubernetes `CronJob` that spins up an Alpine container, installs `pg_dump` and `restic`, dumps the database over network via the `-rw` load balancer, and then uploads it using `restic backup --stdin`.
+A Kubernetes `CronJob` spins up an Alpine container, installs `pg_dump` and `rclone`, dumps each database over the network via its `-rw` service, and streams the result straight to Drive:
 
-## Configuration Steps
+```
+pg_dump | gzip -c | rclone rcat gdrive-crypt:scim-server-YYYY-MM-DD.sql.gz
+```
 
-1. **Update the Secrets file**
+Nothing is staged on local disk, so the job needs no meaningful ephemeral storage regardless of database size.
 
-   An encrypted template for `backup-secrets.sops.yaml` has been provided in `k8s/app/backup/backup-secrets.sops.yaml`. If you have the `age` key configured, decrypt it to fill in your real Hetzner credentials and SSH keys, then encrypt it back:
+Two rclone remotes are involved. `gdrive` talks to Google Drive; `gdrive-crypt` wraps it and encrypts file *contents*. Filename encryption is deliberately off, so backups stay browsable as `scim-server-2026-08-08.sql.gz` in the Drive web UI while their contents remain unreadable to Google or to anyone with the folder link.
 
-   ```bash
-   sops k8s/app/backup/backup-secrets.sops.yaml
-   ```
+The `postgresql18-client` package must track the CloudNativePG major version in `k8s/app/database/` — `pg_dump` refuses to dump a server newer than itself.
 
-   The secret should look like:
-   ```yaml
-   apiVersion: v1
-   kind: Secret
-   metadata:
-     name: backup-secrets
-   type: Opaque
-   stringData:
-     storage-box-user: "u123456" # Replace with your storage box username
-     storage-box-host: "u123456.your-storagebox.de" # Replace with your storage box host
-     storage-box-path: "/home/restic-backups/scim" # Ensure the directory exists or restic will create it
-     restic-password: "YOUR_STRONG_RESTIC_PASSWORD"
-     ssh-password: "YOUR_SSH_PASSWORD"
-   ```
+## One-time Google setup
 
-2. **Apply the Backup CronJob**
+rclone's built-in shared OAuth client is being retired during 2026, so a dedicated client ID is required.
 
-   The backup mechanism is declared in `k8s/app/backup/backup-cronjob.yaml`. Apply it or add it to your `kustomization.yaml`:
+1. In the [Google Cloud Console](https://console.cloud.google.com/), create a project and enable the **Google Drive API**.
 
-   ```bash
-   kubectl apply -f k8s/app/backup/backup-cronjob.yaml
-   ```
+2. Configure the OAuth consent screen: user type **External**, then **publish it to production**.
 
-## Managing Backups
+   > Leaving the app in *Testing* expires every refresh token after 7 days, and the backup job will break weekly.
+
+3. Under **Credentials**, create an **OAuth client ID** of type **Desktop app**. Note the client ID and secret.
+
+4. Locally, install rclone (`brew install rclone`) and run `rclone config` twice:
+
+   - Remote `gdrive` — type `drive`, using your own `client_id` and `client_secret`, and scope **`drive.file`**. Complete the browser consent step.
+   - Remote `gdrive-crypt` — type `crypt`, remote `gdrive:scim-backups`, filename encryption `off`, directory name encryption `false`, and a strong password plus a *different* `password2` salt.
+
+   `drive.file` is chosen on purpose: it is a non-sensitive scope, so publishing the app needs no Google verification review, and it restricts the job to files it created — it cannot read or delete anything else in your Drive.
+
+   > **Store both crypt passwords in your password manager.** They are not recoverable from anywhere else, and without them every backup is permanently unreadable.
+
+5. Edit `~/.config/rclone/rclone.conf` and add `use_trash = false` under `[gdrive]`, so pruned backups free up quota immediately instead of lingering in Drive's trash.
+
+## Configuration
+
+Copy the resulting config into the SOPS-encrypted secret:
+
+```bash
+sops k8s/app/backup/backup-secrets.sops.yaml
+```
+
+The `rclone.conf` key holds the config file verbatim — paste in the output of `cat ~/.config/rclone/rclone.conf`, replacing the placeholders:
+
+```yaml
+stringData:
+  rclone.conf: |
+    [gdrive]
+    type = drive
+    client_id = ....apps.googleusercontent.com
+    client_secret = ...
+    scope = drive.file
+    token = {"access_token":"...","token_type":"Bearer","refresh_token":"...","expiry":"..."}
+    use_trash = false
+
+    [gdrive-crypt]
+    type = crypt
+    remote = gdrive:scim-backups
+    filename_encryption = off
+    directory_name_encryption = false
+    suffix = none
+    password = <obscured>
+    password2 = <obscured>
+```
+
+The `password` and `password2` values must be in rclone's obscured form. They already are if the text came from `rclone config`; otherwise generate them with `rclone obscure <password>`.
+
+Then apply the stack as usual — the CronJob is part of `k8s/app` and ships with both overlays:
+
+```bash
+kustomize build --enable-alpha-plugins --enable-exec k8s/app-spring | kubectl apply -f -
+```
+
+## Managing backups
 
 ### Manually trigger a backup
 
-If you want to run the job instantly rather than waiting for 3 AM:
+To run the job instantly rather than waiting for 3 AM:
 
 ```bash
-kubectl create job --from=cronjob/scim-db-backup manual-backup-1
-# View logs:
-kubectl logs -f job/manual-backup-1
+kubectl create job -n scim --from=cronjob/scim-db-backup manual-backup-1
 ```
 
-### Checking Backups and Restic Status
+```bash
+kubectl logs -n scim -f job/manual-backup-1
+```
 
-To list the current snapshots, run a temporary command pod:
+### Listing backups
+
+From your laptop, with the same rclone config used to create them:
 
 ```bash
-kubectl run -i --tty restic-admin --image=alpine:3.19 --restart=Never --rm \
+rclone lsl gdrive-crypt:
+```
+
+They are also visible directly in the Drive web UI under `scim-backups/`, though the contents will not open — that is the encryption working as intended.
+
+### Getting an admin shell in the cluster
+
+Useful for restores, since the databases are ClusterIP-only:
+
+```bash
+kubectl run -n scim backup-admin --image=alpine:3.23 --restart=Never --rm -it \
   --overrides='{
     "spec": {
       "containers": [{
-        "name": "restic-admin",
-        "image": "alpine:3.19",
+        "name": "backup-admin",
+        "image": "alpine:3.23",
         "command": ["/bin/sh"],
         "stdin": true,
         "tty": true,
         "env": [
-          { "name": "STORAGE_BOX_USER", "valueFrom": { "secretKeyRef": { "name": "backup-secrets", "key": "storage-box-user" } } },
-          { "name": "STORAGE_BOX_HOST", "valueFrom": { "secretKeyRef": { "name": "backup-secrets", "key": "storage-box-host" } } },
-          { "name": "STORAGE_BOX_PATH", "valueFrom": { "secretKeyRef": { "name": "backup-secrets", "key": "storage-box-path" } } },
-          { "name": "RESTIC_PASSWORD", "valueFrom": { "secretKeyRef": { "name": "backup-secrets", "key": "restic-password" } } },
-          { "name": "SSHPASS", "valueFrom": { "secretKeyRef": { "name": "backup-secrets", "key": "ssh-password" } } }
+          { "name": "SERVER_DB_PASSWORD", "valueFrom": { "secretKeyRef": { "name": "scim-postgres-server-superuser", "key": "password" } } },
+          { "name": "VALIDATOR_DB_PASSWORD", "valueFrom": { "secretKeyRef": { "name": "scim-postgres-validator-superuser", "key": "password" } } }
         ],
         "volumeMounts": [{ "name": "backup-secrets", "mountPath": "/etc/backup-secrets", "readOnly": true }]
       }],
@@ -79,46 +127,54 @@ kubectl run -i --tty restic-admin --image=alpine:3.19 --restart=Never --rm \
   }'
 ```
 
-Once inside the shell, type:
-```bash
-apk add --no-cache restic openssh-client sshpass
-mkdir -p ~/.ssh
-echo -e "Host *.your-storagebox.de\n\tStrictHostKeyChecking no\n" > ~/.ssh/config
-export RESTIC_REPOSITORY="sftp:${STORAGE_BOX_USER}@${STORAGE_BOX_HOST}:${STORAGE_BOX_PATH}"
+Once inside the shell:
 
-# List all snapshots:
-sshpass -e restic snapshots
+```bash
+apk add --no-cache postgresql18-client rclone ca-certificates
+install -m 600 /etc/backup-secrets/rclone.conf /tmp/rclone.conf
+export RCLONE_CONFIG=/tmp/rclone.conf
+
+rclone lsl gdrive-crypt:
 ```
+
+The config is copied out of the secret mount because rclone refreshes the OAuth token as it runs and needs somewhere writable to store it.
 
 ## Restoring from a backup
 
-### Restore Process Steps
+1. Get an admin shell as described above.
 
-1. Get a restic admin shell as explained in "Checking Backups and Restic Status" above. Ensure you have `postgresql-client` installed:
+2. List the available backups and pick a date:
+
    ```bash
-   apk add --no-cache postgresql-client restic openssh-client curl sshpass
+   rclone lsl gdrive-crypt:
    ```
 
-2. List your snapshots to find the ID you want to restore:
+3. Stream it straight back into the database:
+
    ```bash
-   sshpass -e restic snapshots
+   rclone cat gdrive-crypt:scim-server-2026-08-08.sql.gz | gunzip \
+     | PGPASSWORD=$SERVER_DB_PASSWORD psql -h scim-postgres-server-rw -U postgres scimserver
    ```
 
-3. Set the DB Variables:
-   ```bash
-   SERVER_DB_PASSWORD=$(kubectl get secret scim-postgres-server-superuser -o jsonpath='{.data.password}' | base64 -d)
-   ```
-
-4. Restore a specific standard input dump directly to your database:
-   ```bash
-   # Make sure you setup SSH and exports first as demonstrated earlier
-   export RESTIC_REPOSITORY="..."
-   export RESTIC_PASSWORD="..."
-
-   # Replace 'SNAPSHOT_ID' below with the actual snapshot ID from `restic snapshots`
-   # Replace `scim-server.sql` with `scim-validator.sql` and change DB credentials appropriately if restoring the validator
-
-   sshpass -e restic dump SNAPSHOT_ID scim-server.sql | PGPASSWORD=$SERVER_DB_PASSWORD psql -h scim-postgres-server-rw -U postgres scimserver
-   ```
+   For the validator, substitute `scim-validator-<date>.sql.gz`, `$VALIDATOR_DB_PASSWORD`, `scim-postgres-validator-rw` and `scimvalidator`.
 
 *Note: Since the database is actively writing, dropping existing tables/schema might be necessary prior to restore. You can execute `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` using `psql` before piping the restore if needed.*
+
+### Rehearsing a restore
+
+Restore into a throwaway database rather than over a live one, and compare row counts afterwards:
+
+```bash
+PGPASSWORD=$VALIDATOR_DB_PASSWORD psql -h scim-postgres-validator-rw -U postgres -c 'CREATE DATABASE restoretest;'
+```
+
+Drop `restoretest` when finished. An untested backup is not a backup.
+
+## How failures surface
+
+The job is written so that a failure is always louder than a silent bad backup:
+
+- `set -euo pipefail` means a `pg_dump` that dies mid-stream fails the whole job, rather than uploading a truncated dump as though it succeeded.
+- `rclone rcat` creates the object before a mid-stream failure can surface, so a failed dump has its partial object deleted again — a failed run leaves nothing behind that could be mistaken for a real backup.
+- Each upload is size-checked before the job proceeds; anything under 4 KiB is treated as a stub and fails the run.
+- Retention runs only after both uploads have succeeded and passed that check, so a bad run can never prune good history.
