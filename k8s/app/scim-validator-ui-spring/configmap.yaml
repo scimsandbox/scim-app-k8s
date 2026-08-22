@@ -10,4 +10,4 @@ data:
   APP_SECURITY_OIDC_ROLE_CLAIM: https://scimsandbox.net/roles
   APP_SECURITY_OIDC_ADMIN_ROLE: admin
   APP_SECURITY_OIDC_USER_ROLE: user
-  APP_PLAYGROUND_URL: https://ui.scimsandbox.net
+  APP_SERVER_MANAGER_URL: https://ui.scimsandbox.net
