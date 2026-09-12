@@ -291,7 +291,7 @@
           }
         },
         {
-          "title": "SCIM Requests / min",
+          "title": "SCIM Requests / hour",
           "layout": {
             "column": 1,
             "row": 19,
@@ -305,7 +305,7 @@
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT rate(sum(scim_operation_duration_seconds_count), 1 minute) + rate(sum(scim_go_operation_duration_seconds_count), 1 minute) AS 'Requests / min' WHERE metricName IN ('scim_operation_duration_seconds_count', 'scim_go_operation_duration_seconds_count') TIMESERIES"
+                "query": "FROM Metric SELECT rate(sum(scim_operation_duration_seconds_count), 1 hour) + rate(sum(scim_go_operation_duration_seconds_count), 1 hour) AS 'Requests / hour' WHERE metricName IN ('scim_operation_duration_seconds_count', 'scim_go_operation_duration_seconds_count') TIMESERIES"
               }
             ]
           }
@@ -378,7 +378,7 @@
           }
         },
         {
-          "title": "SCIM Operations by Type / min",
+          "title": "SCIM Operations by Type / hour",
           "layout": {
             "column": 1,
             "row": 25,
@@ -395,7 +395,7 @@
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT rate(sum(scim_operation_duration_seconds_count), 1 minute) + rate(sum(scim_go_operation_duration_seconds_count), 1 minute) AS 'Requests / min' WHERE metricName IN ('scim_operation_duration_seconds_count', 'scim_go_operation_duration_seconds_count') FACET operation LIMIT MAX TIMESERIES"
+                "query": "FROM Metric SELECT rate(sum(scim_operation_duration_seconds_count), 1 hour) + rate(sum(scim_go_operation_duration_seconds_count), 1 hour) AS 'Requests / hour' WHERE metricName IN ('scim_operation_duration_seconds_count', 'scim_go_operation_duration_seconds_count') FACET operation LIMIT MAX TIMESERIES"
               }
             ]
           }
@@ -428,7 +428,7 @@
           }
         },
         {
-          "title": "SCIM Requests by HTTP Status / min",
+          "title": "SCIM Requests by HTTP Status / hour",
           "layout": {
             "column": 1,
             "row": 29,
@@ -445,13 +445,13 @@
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT rate(sum(scim_operation_duration_seconds_count), 1 minute) + rate(sum(scim_go_operation_duration_seconds_count), 1 minute) AS 'Requests / min' WHERE metricName IN ('scim_operation_duration_seconds_count', 'scim_go_operation_duration_seconds_count') FACET http_status LIMIT MAX TIMESERIES"
+                "query": "FROM Metric SELECT rate(sum(scim_operation_duration_seconds_count), 1 hour) + rate(sum(scim_go_operation_duration_seconds_count), 1 hour) AS 'Requests / hour' WHERE metricName IN ('scim_operation_duration_seconds_count', 'scim_go_operation_duration_seconds_count') FACET http_status LIMIT MAX TIMESERIES"
               }
             ]
           }
         },
         {
-          "title": "SCIM Authentication / min",
+          "title": "SCIM Authentication / hour",
           "layout": {
             "column": 1,
             "row": 32,
@@ -468,13 +468,13 @@
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT rate(sum(scim_operation_authentication_total), 1 minute) + rate(sum(scim_go_operation_authentication_total), 1 minute) AS 'Requests / min' WHERE metricName IN ('scim_operation_authentication_total', 'scim_go_operation_authentication_total') FACET state LIMIT MAX TIMESERIES"
+                "query": "FROM Metric SELECT rate(sum(scim_operation_authentication_total), 1 hour) + rate(sum(scim_go_operation_authentication_total), 1 hour) AS 'Requests / hour' WHERE metricName IN ('scim_operation_authentication_total', 'scim_go_operation_authentication_total') FACET state LIMIT MAX TIMESERIES"
               }
             ]
           }
         },
         {
-          "title": "SCIM Throttled / min",
+          "title": "SCIM Throttled / hour",
           "layout": {
             "column": 7,
             "row": 32,
@@ -491,7 +491,7 @@
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM Metric SELECT rate(sum(scim_operation_throttled_total), 1 minute) + rate(sum(scim_go_operation_throttled_total), 1 minute) AS 'Requests / min' WHERE metricName IN ('scim_operation_throttled_total', 'scim_go_operation_throttled_total') FACET state LIMIT MAX TIMESERIES"
+                "query": "FROM Metric SELECT rate(sum(scim_operation_throttled_total), 1 hour) + rate(sum(scim_go_operation_throttled_total), 1 hour) AS 'Requests / hour' WHERE metricName IN ('scim_operation_throttled_total', 'scim_go_operation_throttled_total') FACET state LIMIT MAX TIMESERIES"
               }
             ]
           }
