@@ -8,3 +8,5 @@ resources:
 images:
   - name: edipal/scim-server-impl-spring
     newTag: "v0.0.3"
+  - name: edipal/scim-server-db
+    newTag: "v0.1.0"
