@@ -78,7 +78,7 @@
           }
         },
         {
-          "title": "DB CPU (%)",
+          "title": "DB CPU (mCPU)",
           "layout": {
             "column": 5,
             "row": 3,
@@ -89,10 +89,13 @@
             "id": "viz.line"
           },
           "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM K8sContainerSample SELECT average(cpuCoresUtilization) WHERE namespaceName = 'scim' AND status = 'Running' AND podName LIKE 'scim-postgres-server-%' TIMESERIES"
+                "query": "FROM K8sContainerSample SELECT 1000 * average(cpuUsedCores) AS 'mCPU' WHERE namespaceName = 'scim' AND status = 'Running' AND podName LIKE 'scim-postgres-server-%' FACET concat('Limit: ', cpuLimitCores, ' cores (', 1000 * cpuLimitCores, 'm)', precision: 0) TIMESERIES"
               }
             ]
           }
@@ -109,10 +112,13 @@
             "id": "viz.line"
           },
           "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM K8sContainerSample SELECT average(memoryWorkingSetBytes) / 1048576 WHERE namespaceName = 'scim' AND status = 'Running' AND podName LIKE 'scim-postgres-server-%' TIMESERIES"
+                "query": "FROM K8sContainerSample SELECT average(memoryWorkingSetBytes) / 1048576 AS 'MiB' WHERE namespaceName = 'scim' AND status = 'Running' AND podName LIKE 'scim-postgres-server-%' FACET concat('Limit: ', memoryLimitBytes / 1048576, ' MiB', precision: 0) TIMESERIES"
               }
             ]
           }
@@ -251,7 +257,7 @@
           }
         },
         {
-          "title": "Server CPU (%)",
+          "title": "Server CPU (mCPU)",
           "layout": {
             "column": 1,
             "row": 16,
@@ -262,10 +268,13 @@
             "id": "viz.line"
           },
           "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM K8sContainerSample SELECT average(cpuCoresUtilization) WHERE namespaceName = 'scim' AND deploymentName = 'scim-server-impl' AND containerName = 'scim-server-impl' AND status = 'Running' TIMESERIES"
+                "query": "FROM K8sContainerSample SELECT 1000 * average(cpuUsedCores) AS 'mCPU' WHERE namespaceName = 'scim' AND deploymentName = 'scim-server-impl' AND containerName = 'scim-server-impl' AND status = 'Running' FACET concat('Limit: ', cpuLimitCores, ' cores (', 1000 * cpuLimitCores, 'm)', precision: 0) TIMESERIES"
               }
             ]
           }
@@ -282,10 +291,13 @@
             "id": "viz.line"
           },
           "rawConfiguration": {
+            "legend": {
+              "enabled": true
+            },
             "nrqlQueries": [
               {
                 "accountId": 4067258,
-                "query": "FROM K8sContainerSample SELECT average(memoryWorkingSetBytes) / 1048576 WHERE namespaceName = 'scim' AND deploymentName = 'scim-server-impl' AND containerName = 'scim-server-impl' AND status = 'Running' TIMESERIES"
+                "query": "FROM K8sContainerSample SELECT average(memoryWorkingSetBytes) / 1048576 AS 'MiB' WHERE namespaceName = 'scim' AND deploymentName = 'scim-server-impl' AND containerName = 'scim-server-impl' AND status = 'Running' FACET concat('Limit: ', memoryLimitBytes / 1048576, ' MiB', precision: 0) TIMESERIES"
               }
             ]
           }
