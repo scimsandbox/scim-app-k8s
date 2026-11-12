@@ -1,0 +1,88 @@
+name: Build and Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "30 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-and-test:
+    name: Validate Kubernetes manifests and SOPS invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate YAML syntax, Kustomize references, and SOPS encryption
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -ryaml -e '
+            errors = []
+            yaml_count = 0
+            sops_count = 0
+
+            Dir.glob("k8s/**/*.{yaml,yml}").sort.each do |path|
+              yaml_count += 1
+              docs = YAML.load_stream(File.read(path)).compact
+              if docs.empty?
+                errors << "#{path}: empty YAML file"
+                next
+              end
+
+              fname = File.basename(path)
+              if fname.end_with?(".sops.yaml", ".sops.yml")
+                sops_count += 1
+                doc = docs.first
+                unless doc.is_a?(Hash) && doc.key?("sops")
+                  errors << "#{path}: missing top-level \"sops\" encryption metadata"
+                end
+                %w[data stringData].each do |secret_field|
+                  field_val = doc.is_a?(Hash) ? doc[secret_field] : nil
+                  next unless field_val.is_a?(Hash)
+                  field_val.each do |k, v|
+                    unless v.is_a?(String) && v.start_with?("ENC[")
+                      errors << "#{path}: unencrypted #{secret_field}.#{k} value (missing ENC[...] wrapper)"
+                    end
+                  end
+                end
+              end
+
+              if %w[kustomization.yaml kustomization.yml].include?(fname)
+                doc = docs.first
+                dir = File.dirname(path)
+                %w[resources generators].each do |ref_list_key|
+                  Array(doc[ref_list_key]).each do |ref|
+                    target = File.expand_path(ref, dir)
+                    unless File.exist?(target)
+                      errors << "#{path}: #{ref_list_key} reference \"#{ref}\" does not exist"
+                    end
+                  end
+                end
+              end
+            end
+
+            errors << "Expected at least one *.sops.yaml file under k8s/" if sops_count.zero?
+
+            unless errors.empty?
+              errors.each { |err| warn "ERROR: #{err}" }
+              exit 1
+            end
+
+            puts "Validated #{yaml_count} Kubernetes YAML files and #{sops_count} SOPS-encrypted secrets."
+          '

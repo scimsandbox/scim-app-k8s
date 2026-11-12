@@ -1,0 +1,19 @@
+# Baseline Kubernetes PodSecurity hardening deferrals for scim-app-k8s.
+# All CRITICAL checks and 22+ other HIGH Kubernetes misconfiguration rules
+# (privileged containers, hostNetwork/hostPID/hostIPC, dangerous Linux
+# capabilities, hostPath/docker.sock mounts, etc.) remain strictly enforced.
+#
+# Deferred to a dedicated manifest-hardening PR (to avoid conflicting with
+# in-flight workload manifest updates):
+# - KSV-0014: readOnlyRootFilesystem=true requires explicit emptyDir volume
+#   mounts for Spring Boot/Tomcat (/tmp), Flyway, and the Alpine pg_dump
+#   backup CronJob (which runs `apk add` at container startup).
+KSV-0014
+AVD-KSV-0014
+
+# - KSV-0118: explicit pod/container securityContext overrides; underlying
+#   application images (distroless / Docker Hardened Images) already run as
+#   non-root users by image default, while backup-cronjob currently requires
+#   root at startup for `apk add`.
+KSV-0118
+AVD-KSV-0118

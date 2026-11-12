@@ -20,3 +20,6 @@
 *.dec.yaml
 *.dec.yml
 /.config/sops/
+
+# Security scan outputs
+trivy-*.sarif
