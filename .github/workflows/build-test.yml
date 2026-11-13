@@ -36,6 +36,7 @@ jobs:
             errors = []
             yaml_count = 0
             sops_count = 0
+            secret_doc_count = 0
 
             Dir.glob("k8s/**/*.{yaml,yml}").sort.each do |path|
               yaml_count += 1
@@ -46,18 +47,50 @@ jobs:
               end
 
               fname = File.basename(path)
-              if fname.end_with?(".sops.yaml", ".sops.yml")
-                sops_count += 1
-                doc = docs.first
-                unless doc.is_a?(Hash) && doc.key?("sops")
-                  errors << "#{path}: missing top-level \"sops\" encryption metadata"
+              is_sops_filename = fname.end_with?(".sops.yaml", ".sops.yml")
+              sops_count += 1 if is_sops_filename
+
+              docs.each_with_index do |doc, idx|
+                doc_label = "#{path} (doc #{idx + 1})"
+                unless doc.is_a?(Hash)
+                  errors << "#{doc_label}: expected YAML mapping document"
+                  next
                 end
-                %w[data stringData].each do |secret_field|
-                  field_val = doc.is_a?(Hash) ? doc[secret_field] : nil
-                  next unless field_val.is_a?(Hash)
-                  field_val.each do |k, v|
-                    unless v.is_a?(String) && v.start_with?("ENC[")
-                      errors << "#{path}: unencrypted #{secret_field}.#{k} value (missing ENC[...] wrapper)"
+
+                is_secret_kind = doc["kind"].to_s == "Secret"
+                secret_doc_count += 1 if is_secret_kind
+
+                if is_secret_kind && !is_sops_filename
+                  errors << "#{doc_label}: kind: Secret must use a *.sops.yaml or *.sops.yml filename"
+                end
+
+                if is_secret_kind || is_sops_filename
+                  sops_meta = doc["sops"]
+                  unless sops_meta.is_a?(Hash)
+                    errors << "#{doc_label}: missing top-level \"sops\" encryption metadata"
+                  else
+                    mac = sops_meta["mac"]
+                    unless mac.is_a?(String) && mac.start_with?("ENC[")
+                      errors << "#{doc_label}: missing or unencrypted sops.mac integrity tag"
+                    end
+                    %w[unencrypted_suffix unencrypted_regex].each do |forbidden_key|
+                      if sops_meta.key?(forbidden_key)
+                        errors << "#{doc_label}: sops.#{forbidden_key} is not permitted"
+                      end
+                    end
+                  end
+
+                  %w[data stringData].each do |secret_field|
+                    next unless doc.key?(secret_field)
+                    field_val = doc[secret_field]
+                    unless field_val.is_a?(Hash)
+                      errors << "#{doc_label}: #{secret_field} must be a mapping"
+                      next
+                    end
+                    field_val.each do |k, v|
+                      unless v.is_a?(String) && v.start_with?("ENC[")
+                        errors << "#{doc_label}: unencrypted #{secret_field}.#{k} value (missing ENC[...] wrapper)"
+                      end
                     end
                   end
                 end
@@ -66,7 +99,7 @@ jobs:
               if %w[kustomization.yaml kustomization.yml].include?(fname)
                 doc = docs.first
                 dir = File.dirname(path)
-                %w[resources generators].each do |ref_list_key|
+                %w[resources generators components].each do |ref_list_key|
                   Array(doc[ref_list_key]).each do |ref|
                     target = File.expand_path(ref, dir)
                     unless File.exist?(target)
@@ -78,11 +111,12 @@ jobs:
             end
 
             errors << "Expected at least one *.sops.yaml file under k8s/" if sops_count.zero?
+            errors << "Expected at least one Secret document under k8s/" if secret_doc_count.zero?
 
             unless errors.empty?
               errors.each { |err| warn "ERROR: #{err}" }
               exit 1
             end
 
-            puts "Validated #{yaml_count} Kubernetes YAML files and #{sops_count} SOPS-encrypted secrets."
+            puts "Validated #{yaml_count} Kubernetes YAML files (#{sops_count} SOPS files, #{secret_doc_count} Secret documents)."
           '

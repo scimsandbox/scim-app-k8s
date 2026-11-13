@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
+  - networkpolicy.yaml
   - backup
   - database
   - scim-server-ui-spring

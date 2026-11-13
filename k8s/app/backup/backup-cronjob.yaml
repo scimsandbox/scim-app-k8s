@@ -2,8 +2,12 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: scim-db-backup
+  namespace: scim
+  labels:
+    app.kubernetes.io/name: scim-db-backup
+    app.kubernetes.io/component: backup
 spec:
-  # Run every day at 03:00 AM
+  # Run every day at 03:00 AM UTC
   schedule: "0 3 * * *"
   # A dump that overruns into the next window must not race the following run.
   concurrencyPolicy: Forbid
@@ -11,78 +15,73 @@ spec:
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
+      activeDeadlineSeconds: 3600
       backoffLimit: 2
       template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: scim-db-backup
+            app.kubernetes.io/component: backup
         spec:
+          automountServiceAccountToken: false
           restartPolicy: OnFailure
-          containers:
-            - name: backup
-              image: alpine:3.23
+          securityContext:
+            runAsNonRoot: true
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: pg-dump
+              image: postgres:18-alpine3.22
+              imagePullPolicy: IfNotPresent
               command:
                 - /bin/sh
                 - -c
                 - |
-                  # pipefail is what makes a failing pg_dump fail the job rather
-                  # than uploading a truncated dump as if it were healthy.
+                  # pipefail ensures a failing pg_dump fails the stage rather
+                  # than producing a truncated gzip archive.
                   set -euo pipefail
-
-                  # postgresql18-client must match the CloudNativePG major
-                  # version in k8s/app/database (pg_dump refuses a newer server).
-                  apk add --no-cache postgresql18-client rclone ca-certificates
-
-                  # rclone refreshes the Google OAuth token while it runs and has
-                  # to write it back, so the config cannot be used in place from
-                  # the read-only secret mount.
-                  install -m 600 /etc/backup-secrets/rclone.conf /tmp/rclone.conf
-                  export RCLONE_CONFIG=/tmp/rclone.conf
+                  umask 027
 
                   DATE=$(date -u +%Y-%m-%d)
-                  REMOTE="gdrive-crypt:"
-
-                  # Anything smaller than this is a stub, not a database.
                   MIN_BYTES=4096
 
-                  # rcat creates the object before a mid-stream failure can
-                  # surface, so a failed run must not leave a truncated file
-                  # sitting in Drive looking like a real backup.
-                  discard() {
-                    echo "Removing partial object $1." >&2
-                    rclone deletefile "$1" || true
-                    exit 1
-                  }
+                  rm -f /backup-staging/*.sql.gz
 
-                  backup_db() {
+                  dump_db() {
                     name=$1
                     host=$2
                     db=$3
                     password=$4
-                    object="${REMOTE}${name}-${DATE}.sql.gz"
+                    out="/backup-staging/${name}-${DATE}.sql.gz"
 
-                    echo "Backing up ${db} from ${host} to ${object}..."
-                    if ! PGPASSWORD="${password}" pg_dump -h "${host}" -U postgres "${db}" \
-                        | gzip -c \
-                        | rclone rcat "${object}"; then
+                    echo "Dumping ${db} from ${host} to ${out}..."
+                    if ! PGPASSWORD="${password}" pg_dump -w -h "${host}" -U postgres "${db}" \
+                        | gzip -c > "${out}"; then
                       echo "ERROR: dump of ${db} failed." >&2
-                      discard "${object}"
+                      rm -f "${out}"
+                      exit 1
                     fi
 
-                    size=$(rclone lsf --format s "${object}")
-                    if [ -z "${size}" ] || [ "${size}" -lt "${MIN_BYTES}" ]; then
-                      echo "ERROR: ${object} is ${size:-0} bytes, expected at least ${MIN_BYTES}." >&2
-                      discard "${object}"
+                    if [ ! -s "${out}" ]; then
+                      echo "ERROR: ${out} was not created or is empty." >&2
+                      rm -f "${out}"
+                      exit 1
                     fi
-                    echo "Uploaded ${object} (${size} bytes)."
+
+                    size=$(wc -c < "${out}" | tr -d ' ')
+                    if [ -z "${size}" ] || [ "${size}" -lt "${MIN_BYTES}" ]; then
+                      echo "ERROR: ${out} is ${size:-0} bytes, expected at least ${MIN_BYTES}." >&2
+                      rm -f "${out}"
+                      exit 1
+                    fi
+
+                    chmod 0440 "${out}"
+                    echo "Staged ${out} (${size} bytes)."
                   }
 
-                  backup_db scim-server    scim-postgres-server-rw    scimserver    "${SERVER_DB_PASSWORD}"
-                  backup_db scim-validator scim-postgres-validator-rw scimvalidator "${VALIDATOR_DB_PASSWORD}"
-
-                  # Only reached when both uploads above succeeded and passed the
-                  # size check, so a bad run can never prune good history.
-                  echo "Pruning backups older than 14 days..."
-                  rclone delete --min-age 14d --include "*.sql.gz" "${REMOTE}"
-
-                  echo "Backup completed successfully!"
+                  dump_db scim-server    scim-postgres-server-rw    scimserver    "${SERVER_DB_PASSWORD}"
+                  dump_db scim-validator scim-postgres-validator-rw scimvalidator "${VALIDATOR_DB_PASSWORD}"
               env:
                 - name: SERVER_DB_PASSWORD
                   valueFrom:
@@ -94,11 +93,141 @@ spec:
                     secretKeyRef:
                       name: scim-postgres-validator-superuser
                       key: password
+              resources:
+                requests:
+                  cpu: 100m
+                  ephemeral-storage: 32Mi
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  ephemeral-storage: 128Mi
+                  memory: 512Mi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 70
+                runAsGroup: 70
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
               volumeMounts:
+                - name: backup-staging
+                  mountPath: /backup-staging
+                - name: pg-tmp
+                  mountPath: /tmp
+          containers:
+            - name: rclone-upload
+              image: rclone/rclone:1.69
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+
+                  # rclone refreshes the Google OAuth token while it runs and has
+                  # to write it back, so copy the config to a writable memory tmpfs.
+                  (umask 077 && cp /etc/backup-secrets/rclone.conf /tmp/rclone.conf)
+                  export RCLONE_CONFIG=/tmp/rclone.conf
+                  export HOME=/tmp
+                  export XDG_CACHE_HOME=/tmp
+
+                  REMOTE="gdrive-crypt:"
+                  MIN_BYTES=4096
+
+                  discard() {
+                    echo "Removing partial object $1." >&2
+                    rclone deletefile --timeout 5m --contimeout 60s "$1" || true
+                    exit 1
+                  }
+
+                  upload_dump() {
+                    prefix=$1
+                    set -- /backup-staging/"${prefix}"-*.sql.gz
+                    if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+                      echo "ERROR: expected one staged dump for ${prefix}, found: $*" >&2
+                      exit 1
+                    fi
+
+                    src=$1
+                    local_size=$(wc -c < "${src}" | tr -d ' ')
+                    if [ -z "${local_size}" ] || [ "${local_size}" -lt "${MIN_BYTES}" ]; then
+                      echo "ERROR: local dump ${src} is ${local_size:-0} bytes, expected at least ${MIN_BYTES}." >&2
+                      exit 1
+                    fi
+
+                    fname=$(basename "${src}")
+                    object="${REMOTE}${fname}"
+
+                    echo "Uploading ${fname} (${local_size} bytes) to ${object}..."
+                    if ! rclone copyto --timeout 5m --contimeout 60s "${src}" "${object}"; then
+                      echo "ERROR: upload of ${fname} failed." >&2
+                      discard "${object}"
+                    fi
+
+                    size=$(rclone lsf --timeout 5m --contimeout 60s --format s "${object}")
+                    if [ -z "${size}" ] || [ "${size}" -lt "${MIN_BYTES}" ]; then
+                      echo "ERROR: ${object} is ${size:-0} bytes, expected at least ${MIN_BYTES}." >&2
+                      discard "${object}"
+                    fi
+                    echo "Uploaded ${object} (${size} bytes)."
+                  }
+
+                  upload_dump scim-server
+                  upload_dump scim-validator
+
+                  # Only reached when both uploads above succeeded and passed the
+                  # size check, so a bad run can never prune good history.
+                  echo "Pruning backups older than 14 days..."
+                  rclone delete --timeout 5m --contimeout 60s --min-age 14d --include "*.sql.gz" "${REMOTE}"
+
+                  echo "Backup completed successfully!"
+              resources:
+                requests:
+                  cpu: 100m
+                  ephemeral-storage: 32Mi
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  ephemeral-storage: 128Mi
+                  memory: 512Mi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                runAsGroup: 65532
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: backup-staging
+                  mountPath: /backup-staging
+                  readOnly: true
                 - name: backup-secrets
                   mountPath: /etc/backup-secrets
                   readOnly: true
+                - name: rclone-tmp
+                  mountPath: /tmp
           volumes:
+            - name: backup-staging
+              emptyDir:
+                medium: Memory
+                sizeLimit: 256Mi
+            - name: pg-tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 16Mi
+            - name: rclone-tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 16Mi
             - name: backup-secrets
               secret:
                 secretName: backup-secrets
+                defaultMode: 0440

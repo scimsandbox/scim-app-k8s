@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: scim-server-impl
+  namespace: scim
   labels:
     app.kubernetes.io/name: scim-server-impl
     app.kubernetes.io/component: scim-server-impl-spring
@@ -40,6 +41,10 @@ spec:
                     values:
                       - database
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         - name: wait-for-postgres
           image: ghcr.io/cloudnative-pg/postgresql:18.1-standard-trixie
@@ -59,10 +64,19 @@ spec:
               cpu: 100m
               memory: 64Mi
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: wait-tmp
+              mountPath: /tmp
         - name: flyway-migrate
           image: edipal/scim-server-db:dev
           imagePullPolicy: Always
@@ -90,10 +104,19 @@ spec:
               cpu: 500m
               memory: 256Mi
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: flyway-tmp
+              mountPath: /tmp
       containers:
         - name: scim-server-impl
           image: edipal/scim-server-impl-spring:dev
@@ -150,7 +173,26 @@ spec:
               ephemeral-storage: 1Gi
               memory: 1Gi
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: wait-tmp
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: flyway-tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

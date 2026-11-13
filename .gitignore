@@ -1,5 +1,6 @@
 # OS / editor noise
 .DS_Store
+**/.DS_Store
 .AppleDouble
 .LSOverride
 ._*
