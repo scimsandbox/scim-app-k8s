@@ -6,6 +6,7 @@ namespace: cloudflared
 resources:
   - serviceaccount.yaml
   - deployment.yaml
+  - networkpolicy.yaml
   - namespace.yaml
 
 generators:

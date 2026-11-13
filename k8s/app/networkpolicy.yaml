@@ -1,0 +1,348 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scim-default-deny
+  namespace: scim
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scim-allow-dns-egress
+  namespace: scim
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scim-apps-ingress
+  namespace: scim
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - scim-server-impl
+          - scim-server-ui-spring
+          - scim-validator-ui-spring
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow public HTTP traffic solely from the Cloudflare Tunnel connector
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cloudflared
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudflared
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow Prometheus metrics scraping solely from the New Relic namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: newrelic
+      ports:
+        - protocol: TCP
+          port: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scim-server-impl-egress
+  namespace: scim
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: scim-server-impl
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: scim-postgres-server
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scim-server-ui-spring-egress
+  namespace: scim
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: scim-server-ui-spring
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: scim-postgres-server
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Outbound HTTPS for Auth0 OIDC (blocks cloud metadata, RFC1918, CGNAT, loopback)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scim-validator-ui-spring-egress
+  namespace: scim
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: scim-validator-ui-spring
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: scim-postgres-validator
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Outbound HTTPS for Auth0 OIDC, GitHub API, and public SCIM validation targets
+    # Explicitly blocks 169.254.169.254/32 (via 169.254.0.0/16), RFC1918 cluster/private ranges, CGNAT, and loopback
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 8443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scim-db-backup-egress
+  namespace: scim
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: scim-db-backup
+  policyTypes:
+    - Egress
+  egress:
+    # pg-dump initContainer -> both CloudNativePG clusters
+    - to:
+        - podSelector:
+            matchExpressions:
+              - key: cnpg.io/cluster
+                operator: In
+                values:
+                  - scim-postgres-server
+                  - scim-postgres-validator
+      ports:
+        - protocol: TCP
+          port: 5432
+    # rclone-upload container -> Google OAuth & Google Drive API over HTTPS
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scim-postgres-server-network
+  namespace: scim
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: scim-postgres-server
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Application, Flyway initContainer, and backup CronJob database connections
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - scim-server-impl
+                  - scim-server-ui-spring
+                  - scim-db-backup
+      ports:
+        - protocol: TCP
+          port: 5432
+    # CloudNativePG intra-cluster replication & instance manager coordination
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: scim-postgres-server
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8000
+    # CloudNativePG operator health checks and status probes
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 5432
+    # New Relic Prometheus exporter scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: newrelic
+      ports:
+        - protocol: TCP
+          port: 9187
+  egress:
+    # Intra-cluster replication & status coordination
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: scim-postgres-server
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8000
+    # CloudNativePG instance manager & bootstrap jobs -> Kubernetes API server
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scim-postgres-validator-network
+  namespace: scim
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: scim-postgres-validator
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Validator UI, Flyway initContainer, and backup CronJob database connections
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - scim-validator-ui-spring
+                  - scim-db-backup
+      ports:
+        - protocol: TCP
+          port: 5432
+    # CloudNativePG intra-cluster replication & instance manager coordination
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: scim-postgres-validator
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8000
+    # CloudNativePG operator health checks and status probes
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 5432
+    # New Relic Prometheus exporter scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: newrelic
+      ports:
+        - protocol: TCP
+          port: 9187
+  egress:
+    # Intra-cluster replication & status coordination
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: scim-postgres-validator
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8000
+    # CloudNativePG instance manager & bootstrap jobs -> Kubernetes API server
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
