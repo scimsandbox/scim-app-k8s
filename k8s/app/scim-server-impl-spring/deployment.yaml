@@ -121,6 +121,11 @@ spec:
                 secretKeyRef:
                   name: scim-postgres-server-auth
                   key: password
+            - name: SCIM_CURSOR_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: scim-server-impl-spring
+                  key: SCIM_CURSOR_SECRET
           startupProbe:
             tcpSocket:
               port: http

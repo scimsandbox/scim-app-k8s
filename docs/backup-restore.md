@@ -1,6 +1,6 @@
 # Database Backup to Google Drive
 
-This guide explains how to set up daily backups of the `scim-postgres-server` and `scim-postgres-validator` CloudNativePG databases into Google Drive. Dumps are compressed, encrypted client-side with [rclone crypt](https://rclone.org/crypt/), and named by date. The last 14 days are kept.
+This guide explains how to set up daily backups of the `scim-postgres-server` and `scim-postgres-validator` CloudNativePG databases into Google Drive. Dumps are compressed, encrypted client-side with [rclone crypt](https://rclone.org/crypt/), and named by date. The last 365 days are kept.
 
 ## Architecture
 

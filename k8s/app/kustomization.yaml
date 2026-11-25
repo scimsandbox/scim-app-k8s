@@ -16,8 +16,8 @@ labels:
 
 images:
   - name: edipal/scim-server-ui-spring
-    newTag: "v0.0.5"
-  - name: edipal/scim-validator-ui-spring
     newTag: "v0.0.7"
+  - name: edipal/scim-validator-ui-spring
+    newTag: "v0.1.4"
   - name: edipal/scim-validator-db
-    newTag: "v0.0.2"
+    newTag: "v0.1.1"

@@ -121,6 +121,11 @@ spec:
                 secretKeyRef:
                   name: scim-postgres-server-auth
                   key: password
+            - name: GO_CURSOR_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: scim-server-impl-go
+                  key: GO_CURSOR_SECRET
           startupProbe:
             httpGet:
               path: /actuator/health

@@ -59,7 +59,7 @@ Notes:
 
 ## Database Backup & Restore
 
-To ensure data safety, we have set up daily automated database backups to Google Drive. A CronJob dumps each database through the network directly as `stdin/stdout`, compresses it, and streams it to Drive via `rclone`, where it is encrypted client-side and kept for 14 days. Exact steps for configuration and restoration are available in [`docs/backup-restore.md`](docs/backup-restore.md).
+To ensure data safety, we have set up daily automated database backups to Google Drive. A CronJob dumps each database through the network directly as `stdin/stdout`, compresses it, and streams it to Drive via `rclone`, where it is encrypted client-side and kept for 365 days. Exact steps for configuration and restoration are available in [`docs/backup-restore.md`](docs/backup-restore.md).
 
 ## SOPS / age key rotation
 

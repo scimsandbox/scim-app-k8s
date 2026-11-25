@@ -6,6 +6,7 @@ metadata:
     app.kubernetes.io/name: scim-validator-ui-spring
     app.kubernetes.io/component: scim-validator-ui-spring
 spec:
+  # Single replica required: in-process reservationLock, publishLock, and reconciliation state assume replicas: 1.
   replicas: 1
   minReadySeconds: 10
   # See scim-server-impl-go/deployment.yaml: caps retained ReplicaSets, which
@@ -117,6 +118,72 @@ spec:
                 secretKeyRef:
                   name: scim-postgres-validator-auth
                   key: password
+            - name: APP_RUNS_MAX_PUBLISHED_PER_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_RUNS_MAX_PUBLISHED_PER_USER
+            - name: APP_COMPLIANCE_PUBLIC_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_COMPLIANCE_PUBLIC_BASE_URL
+            - name: APP_COMPLIANCE_MIN_PUBLISH_SCORE
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_COMPLIANCE_MIN_PUBLISH_SCORE
+            - name: APP_COMPLIANCE_MIN_CORE_COVERAGE_PERCENT
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_COMPLIANCE_MIN_CORE_COVERAGE_PERCENT
+            - name: APP_COMPLIANCE_RESERVATION_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_COMPLIANCE_RESERVATION_TIMEOUT_SECONDS
+            - name: APP_COMPLIANCE_RESERVATION_CLEANUP_INTERVAL_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_COMPLIANCE_RESERVATION_CLEANUP_INTERVAL_MS
+            - name: APP_COMPLIANCE_SAMPLE_RUN_IDS
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_COMPLIANCE_SAMPLE_RUN_IDS
+            - name: APP_GITHUB_PUBLISH_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_GITHUB_PUBLISH_ENABLED
+            - name: APP_GITHUB_REPO
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_GITHUB_REPO
+            - name: APP_GITHUB_BRANCH
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_GITHUB_BRANCH
+            - name: APP_GITHUB_APP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_GITHUB_APP_ID
+            - name: APP_GITHUB_INSTALLATION_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_GITHUB_INSTALLATION_ID
+            - name: APP_GITHUB_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: scim-validator-ui-spring
+                  key: APP_GITHUB_PRIVATE_KEY
+                  optional: true
           startupProbe:
             tcpSocket:
               port: http

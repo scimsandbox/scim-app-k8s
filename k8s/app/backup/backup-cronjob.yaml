@@ -79,8 +79,8 @@ spec:
 
                   # Only reached when both uploads above succeeded and passed the
                   # size check, so a bad run can never prune good history.
-                  echo "Pruning backups older than 14 days..."
-                  rclone delete --min-age 14d --include "*.sql.gz" "${REMOTE}"
+                  echo "Pruning backups older than 365 days..."
+                  rclone delete --min-age 365d --include "*.sql.gz" "${REMOTE}"
 
                   echo "Backup completed successfully!"
               env:
