@@ -9,6 +9,7 @@ data:
   AUTH0_REDIRECT_URI: https://ui.scimsandbox.net/login/oauth2/code/auth0
   APP_SCIM_API_BASE_URL: https://api.scimsandbox.net
   APP_VALIDATOR_URL: https://val.scimsandbox.net
+  APP_WEBSITE_URL: https://scimsandbox.net
   APP_SECURITY_OIDC_ROLE_CLAIM: https://scimsandbox.net/roles
   APP_SECURITY_OIDC_ADMIN_ROLE: admin
   APP_SECURITY_OIDC_USER_ROLE: user
